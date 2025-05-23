@@ -13,6 +13,7 @@ jobs:
 
       - name: Check Services
         run: |
+          rm -rf status
           mkdir -p status
           TIMESTAMP=$(date -Iseconds)
 
@@ -21,21 +22,17 @@ jobs:
             URL=$(echo "$service" | jq -r '.url')
 
             STATUS="down"
-            if curl -s --max-time 10 --head "$URL" | grep -q "200 OK"; then
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -L --max-time 10 "$URL")
+
+            if [ "$HTTP_CODE" -eq 200 ]; then
               STATUS="up"
             fi
 
             FILE="status/status-$ID.json"
 
-            # Initialize file if it doesn't exist
-            if [ ! -f "$FILE" ]; then
-              echo "[]" > "$FILE"
-            fi
-
-            # Append new entry and keep only last 12
-            jq --arg timestamp "$TIMESTAMP" --arg status "$STATUS" \
-              '. |= [{"timestamp": $timestamp, "status": $status}] + . | .[:12]' \
-              "$FILE" > tmp.json && mv tmp.json "$FILE"
+            echo "[" > "$FILE"
+            echo "  {\"timestamp\": \"$TIMESTAMP\", \"status\": \"$STATUS\"}" >> "$FILE"
+            echo "]" >> "$FILE"
           done
 
       - name: Commit and Push
@@ -45,5 +42,5 @@ jobs:
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
           git add status/
-          git commit -m "Update status" || echo "No changes"
+          git commit -m "fix: improve status check logic and clear invalid results" || echo "No changes"
           git push https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git
