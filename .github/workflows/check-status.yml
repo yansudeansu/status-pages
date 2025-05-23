@@ -1,0 +1,47 @@
+name: Check Service Status
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Check Services
+        run: |
+          mkdir -p status
+          TIMESTAMP=$(date -Iseconds)
+
+          jq -c '.[]' services.json | while read service; do
+            ID=$(echo "$service" | jq -r '.id')
+            URL=$(echo "$service" | jq -r '.url')
+
+            STATUS="down"
+            if curl -s --max-time 10 --head "$URL" | grep -q "200 OK"; then
+              STATUS="up"
+            fi
+
+            FILE="status/status-$ID.json"
+
+            # Initialize file if it doesn't exist
+            if [ ! -f "$FILE" ]; then
+              echo "[]" > "$FILE"
+            fi
+
+            # Append new entry and keep only last 12
+            jq --arg timestamp "$TIMESTAMP" --arg status "$STATUS" \
+              '. |= [{"timestamp": $timestamp, "status": $status}] + . | .[:12]' \
+              "$FILE" > tmp.json && mv tmp.json "$FILE"
+          done
+
+      - name: Commit and Push
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add status/
+          git commit -m "Update status" || echo "No changes"
+          git push
